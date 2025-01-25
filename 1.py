@@ -27,3 +27,9 @@ def start_message(message):
 bot.polling()
 
 #31b33472c40d42e0a90aa12f31c5f17c
+
+
+
+TOKEN = '7896372246:AAE8-hIhE3BsA2rc7TJsVsM1fL1p8MUgXqM'
+
+API_KEY = '41360cb46ee54259bf054fe86c0d439e'
