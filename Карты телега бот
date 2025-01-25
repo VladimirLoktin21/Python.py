@@ -1,0 +1,135 @@
+import random
+import telebot
+from telebot import types
+from openai import OpenAI
+
+# Токен Telegram-бота
+TOKEN = '7896372246:AAE8-hIhE3BsA2rc7TJsVsM1fL1p8MUgXqM'
+
+# API-ключ для искусственного интеллекта (OpenAI)
+API_KEY = '41360cb46ee54259bf054fe86c0d439e'
+
+# Прочие настройки
+BASE_URL = 'https://api.aimlapi.com/v1'
+SYSTEM_PROMPT = 'You are a simple chatbot. Just answer user questions.'
+
+# Инициализация бота и OpenAI
+bot = telebot.TeleBot(TOKEN)
+api = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+
+# Карты (полный набор для "дурака")
+CARDS = [
+    "6\u2665", "7\u2665", "8\u2665", "9\u2665", "10\u2665", "J\u2665", "Q\u2665", "K\u2665", "A\u2665",
+    "6\u2666", "7\u2666", "8\u2666", "9\u2666", "10\u2666", "J\u2666", "Q\u2666", "K\u2666", "A\u2666",
+    "6\u2663", "7\u2663", "8\u2663", "9\u2663", "10\u2663", "J\u2663", "Q\u2663", "K\u2663", "A\u2663",
+    "6\u2660", "7\u2660", "8\u2660", "9\u2660", "10\u2660", "J\u2660", "Q\u2660", "K\u2660", "A\u2660"
+]
+
+# Состояние игры
+active_games = {}
+
+# Функция для получения ответа от OpenAI
+def get_ai_response(prompt):
+    try:
+        completion = api.chat.completions.create(
+            model='mistralai/Mistral-7B-Instruct-v0.2',
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=256,
+        )
+        response = completion.choices[0].message.content
+        return response
+    except Exception as e:
+        print(f"Ошибка API: {e}")
+        return "Извините, я не могу сейчас ответить. Попробуйте позже."
+
+# Обработка команды /start
+@bot.message_handler(func=lambda message: message.text.lower() == '/start')
+def start_game(message):
+    bot.reply_to(message, "Привет! Давай сыграем в карты или поговорим. Напиши 'play', чтобы начать игру.")
+
+# Обработка команды play
+@bot.message_handler(func=lambda message: message.text.lower() == 'play')
+def choose_difficulty(message):
+    difficulty_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    difficulty_kb.add(types.KeyboardButton("Легкий"), types.KeyboardButton("Средний"), types.KeyboardButton("Тяжелый"))
+    bot.reply_to(message, "Выберите уровень сложности:", reply_markup=difficulty_kb)
+
+# Обработка выбора сложности
+@bot.message_handler(func=lambda message: message.text in ["Легкий", "Средний", "Тяжелый"])
+def start_round(message):
+    player_cards = random.sample(CARDS, 6)
+    bot_cards = random.sample(CARDS, 6)
+
+    active_games[message.chat.id] = {
+        "difficulty": message.text,
+        "player_cards": player_cards,
+        "bot_cards": bot_cards,
+        "score": {"player": 0, "bot": 0}
+    }
+
+    cards_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for card in player_cards:
+        cards_kb.add(types.KeyboardButton(card))
+
+    bot.reply_to(
+        message,
+        f"Игра началась! У вас 6 карт: {', '.join(player_cards)}.\nВыберите карту, чтобы сыграть!",
+        reply_markup=cards_kb
+    )
+
+# Обработка хода игрока
+@bot.message_handler(func=lambda message: message.chat.id in active_games)
+def play_card_or_chat(message):
+    game = active_games[message.chat.id]
+    player_card = message.text
+
+    if player_card not in game['player_cards']:
+        bot.reply_to(message, "Выберите карту из предложенных!")
+        return
+
+    game['player_cards'].remove(player_card)
+    bot_card = random.choice(game['bot_cards'])
+    game['bot_cards'].remove(bot_card)
+
+    player_value = CARDS.index(player_card)
+    bot_value = CARDS.index(bot_card)
+
+    if player_value > bot_value:
+        game['score']['player'] += 1
+        result = "Вы выиграли этот раунд!"
+    elif player_value < bot_value:
+        game['score']['bot'] += 1
+        result = "Бот выиграл этот раунд!"
+    else:
+        result = "Ничья!"
+
+    if not game['player_cards']:
+        final_score = game['score']
+        if final_score['player'] > final_score['bot']:
+            bot.reply_to(message, f"Игра окончена! Вы выиграли со счетом {final_score['player']}:{final_score['bot']}!")
+        elif final_score['player'] < final_score['bot']:
+            bot.reply_to(message, f"Игра окончена! Бот выиграл со счетом {final_score['bot']}:{final_score['player']}!")
+        else:
+            bot.reply_to(message, f"Игра окончена! Ничья со счетом {final_score['player']}:{final_score['bot']}!")
+        active_games.pop(message.chat.id)
+        return
+
+    cards_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for card in game['player_cards']:
+        cards_kb.add(types.KeyboardButton(card))
+
+    bot.reply_to(
+        message,
+        f"Вы сыграли {player_card}, бот сыграл {bot_card}. {result}\n\nВаши карты: {', '.join(game['player_cards'])}",
+        reply_markup=cards_kb
+    )
+
+# Обработка сообщений, если не в игре
+@bot.message_handler(func=lambda message: message.chat.id not in active_games)
+def chat_with_ai(message):
+    response = get_ai_response(message.text)
+    bot.reply_to(message, response)
+
+if __name__ == "__main__":
+    bot.polling(none_stop=True)
